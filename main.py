@@ -47,7 +47,7 @@ interview_context = {
     'previous_answers': [],
     'scores': [],
     'follow_up_depth': 0,
-    'max_follow_ups': 2,
+    'max_follow_ups': 2,  # Still allows up to 2 follow-ups, but 1 is compulsory
     'interview_track': None,
     'sub_track': None,
     'asked_questions': set()
@@ -339,14 +339,14 @@ def generate_conversational_reply(answer):
         logging.error(f"Error generating reply: {e}")
         return "Thanks for your response."
 
-def wait_for_silence(timeout=10):
+def wait_for_silence(timeout=6):
     """Wait for voice input with a timeout to prevent infinite loops."""
     silence_start = None
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
             answer = voice_answer_queue.get_nowait()
-            logging.debug(f"Voice answer received: {answer}")
+            silence_start = None  # Reset silence timer
             return answer
         except queue.Empty:
             if silence_start is None:
@@ -366,16 +366,10 @@ def submit_answer():
     if use_voice:
         answer = wait_for_silence()
         if answer is None:
-            answer = "No response provided after timeout."
-            logging.warning("No answer received from voice queue.")
+            answer = "No response provided after 6 seconds of silence."
     else:
         answer = request.json.get('answer', "No response provided")
-        logging.debug(f"Text answer received: {answer}")
     
-    if not answer.strip():
-        logging.warning("Empty answer received.")
-        return jsonify({"error": "No answer provided."}), 400
-
     main_question = questions[current_question]
     interview_track = interview_context["interview_track"]
     
@@ -403,7 +397,7 @@ def submit_answer():
     # Compulsory follow-up question for every answer
     if interview_context["follow_up_depth"] < interview_context["max_follow_ups"]:
         follow_up = generate_follow_up_question(main_question, answer, score, interview_track)
-        if not follow_up and interview_context["follow_up_depth"] == 0:
+        if not follow_up and interview_context["follow_up_depth"] == 0:  # Ensure at least one follow-up
             follow_up = "Can you elaborate on that?"
         if follow_up and follow_up not in asked_questions:
             questions.insert(current_question + 1, follow_up)
@@ -538,9 +532,8 @@ def start_interview():
 
 @app.route('/submit_voice_answer', methods=['POST'])
 def submit_voice_answer():
-    """Handle voice answer submission."""
+    """Simulate submitting a voice answer to the queue."""
     answer = request.json.get('answer', "No response provided")
-    logging.debug(f"Received voice answer: {answer}")
     voice_answer_queue.put(answer)
     return jsonify({"message": "Voice answer received"})
 
