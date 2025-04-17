@@ -23,12 +23,17 @@ app = Flask(__name__, template_folder='.', static_folder='.')
 os.makedirs('uploads', exist_ok=True)
 
 # Initialize OpenAI client
-try:
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    logging.info("OpenAI client initialized successfully.")
-except Exception as e:
-    logging.error(f"Failed to initialize OpenAI client: {e}")
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    logging.error("OPENAI_API_KEY is not set in environment variables.")
     client = None
+else:
+    try:
+        client = OpenAI(api_key=api_key)
+        logging.info("OpenAI client initialized successfully.")
+    except Exception as e:
+        logging.error(f"Failed to initialize OpenAI client: {e}")
+        client = None
 
 # Global state management
 questions = []
@@ -47,7 +52,7 @@ interview_context = {
     'previous_answers': [],
     'scores': [],
     'follow_up_depth': 0,
-    'max_follow_ups': 2,  # Still allows up to 2 follow-ups, but 1 is compulsory
+    'max_follow_ups': 2,
     'interview_track': None,
     'sub_track': None,
     'asked_questions': set()
@@ -174,6 +179,14 @@ def generate_resume_questions(resume_text):
         logging.warning("Empty resume text provided.")
         return ["Tell me about yourself."]
     
+    if not client:
+        logging.error("OpenAI client not initialized. Using default questions.")
+        return [
+            "What motivated you to apply for this MBA",
+            "Can you walk me through your career journey",
+            "What’s one key lesson from your professional experience"
+        ]
+    
     prompt = f"Based on the following resume, generate 10 unique and relevant interview questions tailored to the candidate's experience and background (do not include numbers in questions):\n\n{resume_text}"
     try:
         response = client.chat.completions.create(
@@ -260,6 +273,18 @@ def generate_follow_up_question(question, answer, score, interview_track, attemp
     if attempt > 2:
         return None
     
+    if not client:
+        logging.error("OpenAI client not initialized. Using default follow-up.")
+        if attempt == 1:
+            if interview_track == "resume":
+                return "What skills did you gain from that?"
+            elif interview_track == "school_based":
+                return "How will this help you at the school?"
+            elif interview_track == "interest_areas":
+                return "How do you plan to pursue this interest?"
+            return "Can you provide more details?"
+        return None
+
     if interview_track == "resume":
         prompt = f"""Given the question and answer below for a resume-based MBA candidate interview (score: {score}/10), generate a follow-up question focusing on the candidate's experience, skills, or career goals.
 
@@ -320,6 +345,10 @@ Score: {score}/10"""
 
 def generate_conversational_reply(answer):
     """Generate a friendly, human-like reply to the candidate's answer."""
+    if not client:
+        logging.error("OpenAI client not initialized. Using default reply.")
+        return "Thanks for your response."
+
     system_prompt = "As a friendly HR interviewer, generate a short, complete sentence as a reply to the candidate’s answer. Keep it engaging and human-like, and ensure it's a full thought."
     try:
         response = client.chat.completions.create(
@@ -339,14 +368,14 @@ def generate_conversational_reply(answer):
         logging.error(f"Error generating reply: {e}")
         return "Thanks for your response."
 
-def wait_for_silence(timeout=6):
+def wait_for_silence(timeout=15):
     """Wait for voice input with a timeout to prevent infinite loops."""
     silence_start = None
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
             answer = voice_answer_queue.get_nowait()
-            silence_start = None  # Reset silence timer
+            logging.debug(f"Voice answer received: {answer}")
             return answer
         except queue.Empty:
             if silence_start is None:
@@ -358,6 +387,32 @@ def wait_for_silence(timeout=6):
     logging.warning("Voice input timeout reached.")
     return None
 
+@app.route('/reset', methods=['POST'])
+def reset():
+    """Reset interview state."""
+    global questions, current_question, evaluations, use_voice, asked_questions, resume_questions, interview_context
+    questions = []
+    current_question = 0
+    evaluations = []
+    use_voice = False
+    asked_questions = set()
+    resume_questions = []
+    interview_context = {
+        'questions': [],
+        'current_question_idx': 0,
+        'previous_answers': [],
+        'scores': [],
+        'follow_up_depth': 0,
+        'max_follow_ups': 2,
+        'interview_track': None,
+        'sub_track': None,
+        'asked_questions': set()
+    }
+    while not voice_answer_queue.empty():
+        voice_answer_queue.get()  # Clear queue
+    logging.info("Interview state reset.")
+    return jsonify({"message": "Interview state reset"})
+
 @app.route('/submit_answer', methods=['POST'])
 def submit_answer():
     """Handle submission of an answer and proceed with the interview."""
@@ -366,10 +421,16 @@ def submit_answer():
     if use_voice:
         answer = wait_for_silence()
         if answer is None:
-            answer = "No response provided after 6 seconds of silence."
+            answer = "No response provided after timeout."
+            logging.warning("No answer received from voice queue.")
     else:
         answer = request.json.get('answer', "No response provided")
+        logging.debug(f"Text answer received: {answer}")
     
+    if not answer.strip():
+        logging.warning("Empty answer received.")
+        return jsonify({"error": "No answer provided."}), 400
+
     main_question = questions[current_question]
     interview_track = interview_context["interview_track"]
     
@@ -394,10 +455,12 @@ def submit_answer():
     interview_context["scores"].append(score)
     interview_context["current_question_idx"] = current_question
 
+    logging.debug(f"Evaluations after appending: {evaluations}")
+
     # Compulsory follow-up question for every answer
     if interview_context["follow_up_depth"] < interview_context["max_follow_ups"]:
         follow_up = generate_follow_up_question(main_question, answer, score, interview_track)
-        if not follow_up and interview_context["follow_up_depth"] == 0:  # Ensure at least one follow-up
+        if not follow_up and interview_context["follow_up_depth"] == 0:
             follow_up = "Can you elaborate on that?"
         if follow_up and follow_up not in asked_questions:
             questions.insert(current_question + 1, follow_up)
@@ -430,6 +493,7 @@ def submit_answer():
         technical_count = len(questions) - personal_count
         overall_score = calculate_overall_score(evaluations, personal_count, technical_count)
         logging.info(f"Interview finished. Overall score: {overall_score}")
+        logging.debug(f"Final evaluations: {evaluations}")
         return jsonify({
             "reply": "Thanks for the chat! That’s all for today.",
             "finished": True,
@@ -458,6 +522,9 @@ def start_interview():
     sub_track = request.form.get('sub_track', '')
     use_voice = mode == 'voice'
     resume_file = request.files.get('resume') if interview_track == 'resume' else None
+
+    # Reset state before starting new interview
+    reset()
 
     resume_text = ""
     if interview_track == 'resume':
@@ -532,8 +599,9 @@ def start_interview():
 
 @app.route('/submit_voice_answer', methods=['POST'])
 def submit_voice_answer():
-    """Simulate submitting a voice answer to the queue."""
+    """Handle voice answer submission."""
     answer = request.json.get('answer', "No response provided")
+    logging.debug(f"Received voice answer: {answer}")
     voice_answer_queue.put(answer)
     return jsonify({"message": "Voice answer received"})
 
