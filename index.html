@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR Interviewer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #f0f4ff, #e0e7ff);
+            color: #333;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #ff6f61;
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 30px;
+            background: #fff;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            border: 2px solid #ffccbc;
+        }
+        .form-section, .question-section, .summary-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #fff9f9;
+            border-radius: 10px;
+            transition: transform 0.3s ease;
+        }
+        .form-section:hover, .question-section:hover, .summary-section:hover {
+            transform: translateY(-5px);
+        }
+        .question {
+            color: #ff6f61;
+            font-weight: bold;
+            font-size: 1.3em;
+        }
+        .reply {
+            color: #28a745;
+            font-style: italic;
+        }
+        .feedback {
+            color: #ff9800;
+            font-size: 1.1em;
+        }
+        .score {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .overall-score {
+            text-align: center;
+            font-size: 1.5em;
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 10px;
+        }
+        button {
+            padding: 12px 25px;
+            background: linear-gradient(45deg, #ff6f61, #ff8a65);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s ease, transform 0.2s ease;
+            margin-right: 15px;
+        }
+        button:hover {
+            background: linear-gradient(45deg, #ff8a65, #ff6f61);
+            transform: scale(1.05);
+        }
+        button:disabled {
+            background: #d3d3d3;
+            cursor: not-allowed;
+            transform: none;
+        }
+        textarea {
+            width: 100%;
+            height: 120px;
+            margin: 15px 0;
+            padding: 15px;
+            border: 2px solid #ffccbc;
+            border-radius: 10px;
+            font-size: 1.1em;
+            resize: none;
+            background: #fff5f5;
+        }
+        select, input[type="radio"], input[type="file"] {
+            margin: 15px 0;
+            padding: 10px;
+            border-radius: 8px;
+            border: 2px solid #ffccbc;
+            font-size: 1em;
+            background: #fff;
+        }
+        label {
+            margin-right: 20px;
+            font-size: 1.1em;
+            color: #555;
+        }
+        #status-text, #progress-text {
+            color: #777;
+            font-style: italic;
+            margin: 5px 0;
+        }
+        #sub-track-section {
+            display: none;
+            margin-top: 10px;
+        }
+        #resume-upload-section {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>HR Interviewer</h1>
+
+        <div id="start-section" class="form-section">
+            <div id="resume-upload-section">
+                <p>Upload your resume (PDF or DOCX):</p>
+                <input type="file" id="resume-file" accept=".pdf,.docx">
+            </div>
+            <p>Select interview track:</p>
+            <select id="interview-track" onchange="toggleSubTrack(); toggleResumeUpload();">
+                <option value="resume">Resume-based</option>
+                <option value="school_based">School Based</option>
+                <option value="interest_areas">Interest Areas</option>
+            </select>
+            <div id="sub-track-section">
+                <p>Select specific area:</p>
+                <select id="sub-track">
+                    <!-- Options populated dynamically -->
+                </select>
+            </div>
+            <p>Choose your language:</p>
+            <select id="language">
+                <option value="en-IN">English (India)</option>
+                <option value="en-US">English (US)</option>
+                <option value="en-GB">English (UK)</option>
+            </select>
+            <p>How would you like to chat with me?</p>
+            <label><input type="radio" name="mode" value="text" checked> Text</label>
+            <label><input type="radio" name="mode" value="voice"> Voice</label>
+            <br>
+            <button onclick="startInterview()">Let’s Get Started!</button>
+        </div>
+
+        <div id="question-section" class="question-section" style="display: none;">
+            <p id="progress-text"></p>
+            <p id="question-text" class="question"></p>
+            <p id="status-text"></p>
+            <textarea id="answer-input" placeholder="Type your answer here or just talk to me if you chose voice!"></textarea>
+            <br>
+            <button id="submit-btn" onclick="submitAnswer()" style="display: none;">Send Answer</button>
+            <button id="pause-btn" onclick="togglePause()" style="display: none;">Pause</button>
+            <p id="reply-text" class="reply"></p>
+        </div>
+
+        <div id="summary-section" class="summary-section" style="display: none;">
+            <h2>Your Interview Wrap-Up</h2>
+            <div id="evaluations"></div>
+            <div id="overall-score" class="overall-score"></div>
+        </div>
+    </div>
+
+    <script>
+        let totalQuestions = 0;
+        let useVoice = false;
+        let questionNumber = 0;
+        let isPaused = false;
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US'; // Default to en-US for broader compatibility
+        recognition.maxAlternatives = 1;
+        let silenceTimer;
+        const synth = window.speechSynthesis;
+        let isSpeaking = false;
+
+        function speakText(text, callback) {
+            const voices = synth.getVoices();
+            const femaleVoice = voices.find(voice => voice.name.includes('Female') || voice.name.includes('Google UK English Female') || voice.name.includes('Samantha') || voice.gender === 'female') || voices[0];
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.voice = femaleVoice;
+            utterance.lang = document.getElementById('language').value;
+            utterance.rate = 1.1;
+            utterance.pitch = 1.2;
+            isSpeaking = true;
+            utterance.onend = () => {
+                isSpeaking = false;
+                if (callback) callback();
+            };
+            synth.speak(utterance);
+        }
+
+        window.speechSynthesis.onvoiceschanged = () => {};
+
+        recognition.onstart = () => {
+            console.log('Speech recognition started');
+            document.getElementById('status-text').textContent = 'Listening...';
+        };
+
+        recognition.onresult = (event) => {
+            let interimTranscript = '';
+            let finalTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript + ' ';
+                } else {
+                    interimTranscript = transcript;
+                }
+            }
+            const answerInput = document.getElementById('answer-input');
+            answerInput.value = finalTranscript + interimTranscript;
+            console.log('Speech captured:', answerInput.value);
+
+            if (finalTranscript && useVoice && !isPaused) {
+                clearTimeout(silenceTimer);
+                silenceTimer = setTimeout(() => {
+                    console.log('Silence detected, submitting answer:', answerInput.value);
+                    recognition.stop();
+                    submitVoiceAnswer(answerInput.value);
+                }, 2000); // Increased to 2 seconds for better capture
+            }
+        };
+
+        recognition.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+            document.getElementById('status-text').textContent = `Speech error: ${event.error}. Please try again.`;
+            if (event.error === 'no-speech') {
+                document.getElementById('status-text').textContent = 'No speech detected. Speak clearly or switch to text mode.';
+            } else if (event.error === 'not-allowed') {
+                alert('Microphone access denied. Please allow microphone permissions.');
+            }
+        };
+
+        recognition.onend = () => {
+            console.log('Speech recognition ended');
+            if (!isPaused && useVoice) {
+                document.getElementById('status-text').textContent = '';
+                setTimeout(() => recognition.start(), 500); // Restart to keep listening
+            }
+        };
+
+        function togglePause() {
+            if (isPaused) {
+                recognition.start();
+                document.getElementById('pause-btn').textContent = 'Pause';
+                document.getElementById('status-text').textContent = 'Listening...';
+            } else {
+                recognition.stop();
+                document.getElementById('pause-btn').textContent = 'Resume';
+                document.getElementById('status-text').textContent = 'Paused';
+            }
+            isPaused = !isPaused;
+        }
+
+        async function submitVoiceAnswer(answer) {
+            if (!answer.trim()) {
+                console.warn('Empty answer, not submitting');
+                document.getElementById('status-text').textContent = 'No answer provided. Please speak again.';
+                return;
+            }
+            try {
+                const response = await fetch('/submit_voice_answer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ answer: answer })
+                });
+                const data = await response.json();
+                console.log('Voice answer submitted:', data);
+                await submitAnswer(); // Trigger backend processing
+            } catch (error) {
+                console.error('Error submitting voice answer:', error);
+                document.getElementById('status-text').textContent = 'Error submitting answer. Please try again.';
+            }
+        }
+
+        function toggleSubTrack() {
+            const track = document.getElementById('interview-track').value;
+            const subTrackSection = document.getElementById('sub-track-section');
+            const subTrackSelect = document.getElementById('sub-track');
+            subTrackSelect.innerHTML = '';
+
+            if (track === 'school_based') {
+                subTrackSection.style.display = 'block';
+                const options = [
+                    { value: 'IIM', text: 'IIM' },
+                    { value: 'ISB', text: 'ISB' },
+                    { value: 'Other', text: 'Other B-Schools' }
+                ];
+                options.forEach(opt => {
+                    const option = document.createElement('option');
+                    option.value = opt.value;
+                    option.textContent = opt.text;
+                    subTrackSelect.appendChild(option);
+                });
+            } else if (track === 'interest_areas') {
+                subTrackSection.style.display = 'block';
+                const options = [
+                    { value: 'General Business', text: 'General Business & Leadership' },
+                    { value: 'Finance', text: 'Finance & Economics' },
+                    { value: 'Marketing', text: 'Marketing & Strategy' },
+                    { value: 'Operations', text: 'Operations & Supply Chain' }
+                ];
+                options.forEach(opt => {
+                    const option = document.createElement('option');
+                    option.value = opt.value;
+                    option.textContent = opt.text;
+                    subTrackSelect.appendChild(option);
+                });
+            } else {
+                subTrackSection.style.display = 'none';
+            }
+        }
+
+        function toggleResumeUpload() {
+            const track = document.getElementById('interview-track').value;
+            const resumeSection = document.getElementById('resume-upload-section');
+            const resumeInput = document.getElementById('resume-file');
+            
+            if (track === 'resume') {
+                resumeSection.style.display = 'block';
+                resumeInput.required = true;
+            } else {
+                resumeSection.style.display = 'none';
+                resumeInput.required = false;
+            }
+        }
+
+        async function startInterview() {
+            const interviewTrack = document.getElementById('interview-track').value;
+            const subTrack = document.getElementById('sub-track').value;
+            const language = document.getElementById('language').value;
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            const resumeFile = document.getElementById('resume-file').files[0];
+
+            if (interviewTrack === 'resume' && !resumeFile) {
+                alert('Please upload your resume for resume-based interview.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('interview_track', interviewTrack);
+            if (interviewTrack === 'school_based' || interviewTrack === 'interest_areas') {
+                formData.append('sub_track', subTrack);
+            }
+            formData.append('language', language);
+            formData.append('mode', mode);
+            if (interviewTrack === 'resume' && resumeFile) {
+                formData.append('resume', resumeFile);
+            }
+
+            try {
+                const response = await fetch('/start_interview', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                totalQuestions = data.total_questions;
+                questionNumber = 1;
+                useVoice = data.use_voice;
+                recognition.lang = language;
+
+                document.getElementById('start-section').style.display = 'none';
+                document.getElementById('question-section').style.display = 'block';
+                document.getElementById('progress-text').textContent = `Question ${data.question_number} of ${totalQuestions}`;
+                document.getElementById('question-text').textContent = `${data.current_question}`;
+                document.getElementById('answer-input').value = '';
+                document.getElementById('reply-text').textContent = '';
+                document.getElementById('status-text').textContent = '';
+                document.getElementById('submit-btn').style.display = useVoice ? 'none' : 'inline-block';
+                document.getElementById('pause-btn').style.display = useVoice ? 'inline-block' : 'none';
+
+                if (useVoice) {
+                    speakText(`Hi there! I’m excited to chat with you. Here’s the first question: ${data.current_question}`, () => {
+                        setTimeout(() => {
+                            document.getElementById('status-text').textContent = 'Listening...';
+                            recognition.start();
+                        }, 1000);
+                    });
+                }
+            } catch (error) {
+                console.error('Error starting interview:', error);
+                alert('Failed to start interview. Please try again.');
+            }
+        }
+
+        async function submitAnswer() {
+            if (useVoice) recognition.stop();
+            const answer = document.getElementById('answer-input').value.trim();
+            if (!answer && !useVoice) {
+                document.getElementById('status-text').textContent = 'Please provide an answer.';
+                return;
+            }
+
+            document.getElementById('status-text').textContent = 'Processing...';
+            try {
+                const response = await fetch('/submit_answer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ answer: answer || 'No response provided' })
+                });
+                const data = await response.json();
+
+                document.getElementById('reply-text').textContent = `${data.reply}`;
+                document.getElementById('answer-input').value = '';
+                document.getElementById('status-text').textContent = '';
+
+                if (data.finished) {
+                    document.getElementById('question-section').style.display = 'none';
+                    document.getElementById('summary-section').style.display = 'block';
+
+                    const evaluationsDiv = document.getElementById('evaluations');
+                    data.evaluations.forEach((eval, index) => {
+                        const block = document.createElement('div');
+                        block.innerHTML = `
+                            <p class="question">${eval.question}</p>
+                            <p>Answer: ${eval.answer}</p>
+                            <p class="feedback">Feedback: ${eval.evaluation}</p>
+                        `;
+                        evaluationsDiv.appendChild(block);
+                    });
+
+                    document.getElementById('overall-score').innerHTML = `
+                        <h3>Overall Score: ${data.overall_score}/100</h3>
+                        <p>Weightage: Technical: 80%, Personal: 20%</p>
+                    `;
+                    if (useVoice) {
+                        speakText(`Wow, we’re done already! ${data.reply} Your overall score is ${data.overall_score} out of 100. Great job!`);
+                    }
+                } else if (data.next_question) {
+                    questionNumber++;
+                    document.getElementById('progress-text').textContent = `Question ${data.question_number} of ${totalQuestions}`;
+                    document.getElementById('question-text').textContent = `${data.current_question}`;
+                    if (useVoice) {
+                        speakText(`${data.reply} Alright, here’s the next question: ${data.current_question}`, () => {
+                            setTimeout(() => {
+                                document.getElementById('status-text').textContent = 'Listening...';
+                                recognition.start();
+                            }, 1000);
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error submitting answer:', error);
+                document.getElementById('status-text').textContent = 'Error processing answer. Please try again.';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            toggleResumeUpload();
+            if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+                alert('Speech recognition not supported in this browser. Please use Chrome or switch to text mode.');
+                document.querySelector('input[value="voice"]').disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>
