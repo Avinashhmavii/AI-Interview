@@ -23,12 +23,9 @@ app = Flask(__name__, template_folder='.', static_folder='.')
 os.makedirs('uploads', exist_ok=True)
 
 # Initialize OpenAI client
-try:
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    logging.info("OpenAI client initialized successfully.")
-except Exception as e:
-    logging.error(f"Failed to initialize OpenAI client: {e}")
-    client = None
+api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key)
+logging.info("OpenAI client initialized
 
 # Global state management
 questions = []
