@@ -282,32 +282,73 @@
         let isListening = false;
         let accumulatedTranscript = ''; // Store the full transcript across pauses
 
-        function speakText(text, callback) {
-            const voices = synth.getVoices();
+        // Helper to wait for voices to load
+        function waitForVoices() {
+            return new Promise(resolve => {
+                const voices = synth.getVoices();
+                if (voices.length) {
+                    resolve(voices);
+                    return;
+                }
+                synth.onvoiceschanged = () => {
+                    const loadedVoices = synth.getVoices();
+                    synth.onvoiceschanged = null;
+                    resolve(loadedVoices);
+                };
+            });
+        }
+
+        async function speakText(text, callback) {
+            const voices = await waitForVoices();
+            console.log('Available voices:', voices.map(v => v.name)); // Debug log
             const voiceModel = document.getElementById('voice-model').value;
-            const selectedVoice = voices.find(voice => 
-                voiceModel === 'male' ? 
-                (voice.name.includes('Male') || voice.name.includes('Google UK English Male') || voice.name.includes('Daniel')) :
-                (voice.name.includes('Female') || voice.name.includes('Google UK English Female') || voice.name.includes('Samantha'))
-            ) || voices[0];
+            const selectedLanguage = document.getElementById('language').value;
+            let selectedVoice;
+
+            if (selectedLanguage === 'en-IN') {
+                // Prioritize Indian-accented voices for en-IN
+                selectedVoice = voices.find(voice => 
+                    voiceModel === 'male' ? 
+                    (voice.lang === 'hi-IN' || voice.lang === 'en-IN' || voice.name.toLowerCase().includes('indian') || voice.name.toLowerCase().includes('hindi')) :
+                    (voice.lang === 'hi-IN' || voice.lang === 'en-IN' || voice.name.toLowerCase().includes('indian') || voice.name.toLowerCase().includes('hindi'))
+                ) || voices.find(voice => 
+                    voiceModel === 'male' ? 
+                    (voice.name.includes('Male') || voice.name.includes('Google UK English Male') || voice.name.includes('Daniel')) :
+                    (voice.name.includes('Female') || voice.name.includes('Google UK English Female') || voice.name.includes('Samantha'))
+                ) || voices[0];
+            } else {
+                // Original logic for other languages
+                selectedVoice = voices.find(voice => 
+                    voiceModel === 'male' ? 
+                    (voice.name.includes('Male') || voice.name.includes('Google UK English Male') || voice.name.includes('Daniel')) :
+                    (voice.name.includes('Female') || voice.name.includes('Google UK English Female') || voice.name.includes('Samantha'))
+                ) || voices[0];
+            }
+
+            console.log('Selected voice:', selectedVoice ? selectedVoice.name : 'None'); // Debug log
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.voice = selectedVoice;
-            utterance.lang = document.getElementById('language').value;
+            utterance.lang = selectedLanguage;
             utterance.rate = 1.1;
             utterance.pitch = 1.2;
             isSpeaking = true;
             utterance.onend = () => {
+                isSpeaking = false;
+                console.log('Speech ended'); // Debug log
+                if (callback) callback();
+            };
+            utterance.onerror = (event) => {
+                console.error('SpeechSynthesis error:', event.error); // Debug log
                 isSpeaking = false;
                 if (callback) callback();
             };
             synth.speak(utterance);
         }
 
-        window.speechSynthesis.onvoiceschanged = () => {};
-
         recognition.onstart = () => {
             isListening = true;
             document.getElementById('status-text').textContent = 'Listening...';
+            console.log('Speech recognition started'); // Debug log
         };
 
         recognition.onresult = (event) => {
@@ -344,6 +385,7 @@
 
         recognition.onerror = (event) => {
             document.getElementById('status-text').textContent = `Speech error: ${event.error}. Please try again.`;
+            console.error('SpeechRecognition error:', event.error); // Debug log
             if (event.error === 'no-speech') {
                 document.getElementById('status-text').textContent = 'No speech detected. Speak clearly or switch to text mode.';
             } else if (event.error === 'not-allowed') {
@@ -358,6 +400,7 @@
             } else {
                 isListening = false;
             }
+            console.log('Speech recognition ended'); // Debug log
         };
 
         function togglePause() {
@@ -393,6 +436,7 @@
                 await submitAnswer();
             } catch (error) {
                 document.getElementById('status-text').textContent = 'Error submitting answer. Please try again.';
+                console.error('Submit voice answer error:', error); // Debug log
                 recognition.start();
                 isListening = true;
             }
@@ -505,6 +549,7 @@
                 document.getElementById('start-section').style.display = 'block';
                 document.getElementById('question-section').style.display = 'none';
                 document.getElementById('status-text').textContent = '';
+                console.error('Start interview error:', error); // Debug log
             }
         }
 
@@ -529,7 +574,7 @@
                 });
                 const data = await response.json();
 
-                totalQuestions = data.total_questions;
+                totalQuestions = data涯total_questions;
                 document.getElementById('reply-text').textContent = data.reply;
                 document.getElementById('answer-input').value = '';
                 accumulatedTranscript = ''; // Reset after submission
@@ -574,6 +619,7 @@
                 }
             } catch (error) {
                 document.getElementById('status-text').textContent = 'Error processing answer. Please try again.';
+                console.error('Submit answer error:', error); // Debug log
                 if (useVoice) {
                     setTimeout(() => {
                         document.getElementById('status-text').textContent = 'Listening...';
@@ -591,5 +637,5 @@
             }
         });
     </script>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9364195389d3b004',t:'MTc0NTY0OTczMy4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
