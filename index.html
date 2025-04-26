@@ -372,6 +372,14 @@
 
             if (finalTranscript && useVoice && !isPaused) {
                 clearTimeout(silenceTimer);
+                // Submit immediately if a final transcript is detected
+                recognition.stop();
+                isListening = false;
+                document.getElementById('status-text').textContent = '';
+                submitVoiceAnswer(answerInput.value);
+            } else if (useVoice && !isPaused) {
+                // Only set silence timer if no final transcript yet
+                clearTimeout(silenceTimer);
                 silenceTimer = setTimeout(() => {
                     if (isListening) {
                         recognition.stop();
@@ -384,14 +392,18 @@
         };
 
         recognition.onerror = (event) => {
-            document.getElementById('status-text').textContent = `Speech error: ${event.error}. Please try again.`;
-            console.error('SpeechRecognition error:', event.error); // Debug log
-            if (event.error === 'no-speech') {
-                document.getElementById('status-text').textContent = 'No speech detected. Speak clearly or switch to text mode.';
-            } else if (event.error === 'not-allowed') {
-                alert('Microphone access denied. Please allow microphone permissions.');
+            const answerInput = document.getElementById('answer-input');
+            // Only show error if no transcript exists
+            if (!answerInput.value.trim()) {
+                document.getElementById('status-text').textContent = `Speech error: ${event.error}. Please try again.`;
+                if (event.error === 'no-speech') {
+                    document.getElementById('status-text').textContent = 'No speech detected. Speak clearly or switch to text mode.';
+                } else if (event.error === 'not-allowed') {
+                    alert('Microphone access denied. Please allow microphone permissions.');
+                }
             }
             isListening = false;
+            console.error('SpeechRecognition error:', event.error); // Debug log
         };
 
         recognition.onend = () => {
@@ -431,11 +443,14 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ answer })
                 });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
                 const data = await response.json();
                 accumulatedTranscript = ''; // Reset after submission
                 await submitAnswer();
             } catch (error) {
-                document.getElementById('status-text').textContent = 'Error submitting answer. Please try again.';
+                document.getElementById('status-text').textContent = 'Error submitting answer to server. Please try again.';
                 console.error('Submit voice answer error:', error); // Debug log
                 recognition.start();
                 isListening = true;
@@ -574,7 +589,7 @@
                 });
                 const data = await response.json();
 
-                totalQuestions = data涯total_questions;
+                totalQuestions = data.total_questions;
                 document.getElementById('reply-text').textContent = data.reply;
                 document.getElementById('answer-input').value = '';
                 accumulatedTranscript = ''; // Reset after submission
